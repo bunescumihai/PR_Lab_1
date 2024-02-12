@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Server;
+using System;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -8,8 +9,15 @@ IPAddress ipAddress = IPAddress.Parse("127.0.0.1");
 int port = 9000;
 bool run = true;
 
-List <Socket> connections = new List <Socket>();
-List <Thread> threads = new List <Thread>();
+
+Queue<Job> jobQueue = new Queue<Job>();
+Mutex mutex = new Mutex();
+Mutex queueMutex = new Mutex();
+
+ConnectionsHandler connectionsHandler = new ConnectionsHandler();
+ThreadsHandler threadsHandler = new ThreadsHandler();
+
+const int threadsNumber = 10;
 
 try
 {
@@ -24,34 +32,32 @@ catch(SocketException ex)
 }
 
 
-int clientsConnected = 0;
 
 if (run)
 {
     Console.WriteLine("Server is starting");
     Console.WriteLine("Waiting for connections...");
+
+    for (int i = 0; i < threadsNumber; i++)
+        threadsHandler.Add(new Thread(new ThreadStart(() => { ThreadWork(); })));
+
+    Thread controlConnectionsThread = new Thread(new ThreadStart(() => {  ControlConnections(); }));
+    controlConnectionsThread.Start();
+
     serverSocket.Listen(5);
 }
 
 while (run)
 {
-    Thread controlConnections = new Thread(new ThreadStart(ControlConnections));
-    Thread controlThreads = new Thread(new ThreadStart(ControlThreads));
-    controlConnections.Start();
-    controlThreads.Start();
-
     Socket connection = serverSocket.Accept();
-    connections.Add(connection);
-
-    clientsConnected++;
-
-    Console.WriteLine("A client has connected");
-    Console.WriteLine($"Total: {clientsConnected} connections");
-
+    mutex.WaitOne();
+    connectionsHandler.Add(new Connection(connection));
+    mutex.ReleaseMutex();
 }
 
-void ServeConnection(Socket connection)
+void ServeConnection(Connection connection)
 {
+    connection.InServing = true;
 
     StringBuilder sb = new StringBuilder();
 
@@ -61,78 +67,71 @@ void ServeConnection(Socket connection)
 
         try
         {
-            int bytesReceived = connection.Receive(buffer);
+            int bytesReceived = connection.Conn.Receive(buffer);
             sb.Append(Encoding.UTF8.GetString(buffer, 0, bytesReceived));
         }
         catch (Exception ex)
         {
-            Console.WriteLine(ex.Message);
+            throw new ReceiveException();
         }
 
-    } while (connection.Available > 0);
+    } while (connection.Conn.Available > 0);
 
     try
     {
-        connection.Send(Encoding.UTF8.GetBytes("Server receive your message"));
+        connection.Conn.Send(Encoding.UTF8.GetBytes("Server receive your message"));
     }
-    catch { }
+    catch {
+        throw new SendException();
+    }
 
-    Console.WriteLine(sb.ToString());
+    connection.InServing = false;
+
+    if(sb.Length > 0)
+        Console.WriteLine(sb.ToString());
+
     sb = sb.Clear();
-
 }
+
+
 
 void ControlConnections()
 {
     while (true)
     {
-        Thread.Sleep(100);
-        try
-        {
-            foreach (Socket conn in connections)
-            {
-                if (!conn.Connected)
-                {
-                    clientsConnected--;
-
-                    Console.WriteLine("A client has deconnected");
-                    Console.WriteLine($"Total: {clientsConnected} connections");
-
-                    connections.Remove(conn);
-
-                    continue;
-                }
-
-                if (conn.Available > 0)
-                {
-                    while (threads.Count > 10)
-                        Thread.Sleep(50);
-
-                    Thread thread = new Thread(new ThreadStart(() => ServeConnection(conn)));
-                    threads.Add(thread);
-                    thread.Start();
-
-                }
-            }
-        }
-        catch { }
+        Connection connection = connectionsHandler.NeedToServe();
+        jobQueue.Enqueue(new Job(() => { ServeConnection(connection); }));
     }
 }
 
 
-void ControlThreads()
+void ThreadWork()
 {
     while (true)
     {
-        Thread.Sleep(100);
-        try
+        queueMutex.WaitOne();
+        if(jobQueue.Count> 0)
         {
-            foreach (Thread th in threads)
+            Job job = jobQueue.Dequeue();
+            queueMutex.ReleaseMutex();
+            try
             {
-                if (!th.IsAlive)
-                    threads.Remove(th);
+                job.Execute();
+            }
+            catch(ReceiveException ex) 
+            {
+                Console.WriteLine(ex.Message);
+            }
+            catch (SendException ex)
+            {
+                Console.WriteLine(ex.Message);
             }
         }
-        catch { }
+        else
+        {
+            queueMutex.ReleaseMutex();
+            Thread.Sleep(100);
+        }
+
     }
 }
