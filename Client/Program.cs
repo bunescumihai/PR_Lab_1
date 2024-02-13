@@ -28,18 +28,19 @@ if (run)
 {
     Console.Write("Please enter your name: ");
     name = Console.ReadLine() ?? "Unknown user";
+    Thread receiverThread = new Thread(new ThreadStart(()=> { Receiver(); }));
+    receiverThread.Start();
 }
 
 while (run)
 {
     Console.WriteLine("Enter a message to send to server");
 
-    counter ++;
-
     string text = Console.ReadLine() ?? "";
 
     if (text.Equals("Close"))
     {
+        clientSocket.Shutdown(SocketShutdown.Both);
         clientSocket.Close();
 
         Console.WriteLine("Connection was closed");
@@ -48,22 +49,30 @@ while (run)
     }
 
 
-    byte[] bytesData = Encoding.UTF8.GetBytes($"{name}: Message {counter}");
+    byte[] bytesData = Encoding.UTF8.GetBytes($"{name}: {text}");
 
     clientSocket.Send(bytesData);
+}
 
-    string receivedText = string.Empty;
+void Receiver()
+{
+    StringBuilder sb = new StringBuilder();
 
-    do
+    while (true)
     {
-        byte[] buffer = new byte[1024];
-        int bytesReceived = clientSocket.Receive(buffer);
+        do
+        {
+            byte[] buffer = new byte[1024];
+            int bytesReceived = clientSocket.Receive(buffer);
 
-        receivedText += Encoding.UTF8.GetString(buffer, 0, bytesReceived);
+            sb.Append(Encoding.UTF8.GetString(buffer, 0, bytesReceived));
 
-    } while (clientSocket.Available > 0);
+        } while (clientSocket.Available > 0);
 
-    Console.WriteLine($"Server: {receivedText}");
+        Console.WriteLine(sb.ToString());
+
+        sb.Clear();
+    }
 }
 
 
