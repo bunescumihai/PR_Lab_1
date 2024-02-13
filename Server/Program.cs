@@ -14,9 +14,11 @@ Queue<Job> jobQueue = new Queue<Job>();
 Mutex mutex = new Mutex();
 Mutex queueMutex = new Mutex();
 
+
 ConnectionsHandler connectionsHandler = new ConnectionsHandler();
 ThreadsHandler threadsHandler = new ThreadsHandler();
 
+MessagesSender messagesSender = new MessagesSender(connectionsHandler);
 const int threadsNumber = 10;
 
 try
@@ -79,7 +81,7 @@ void ServeConnection(Connection connection)
 
     try
     {
-        connection.Conn.Send(Encoding.UTF8.GetBytes("Server receive your message"));
+        messagesSender.SendToAll(connection, sb.ToString());
     }
     catch {
         throw new SendException();

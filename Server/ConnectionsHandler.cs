@@ -59,14 +59,14 @@ namespace Server
 
             while (true)
             {
-                Thread.Sleep(100);
+                Thread.Sleep(2000);
 
                 for (int i = 0; i < connections.Count; i++)
                 {
                     conn = connections.ElementAt(i);
                     if (!conn.InServing)
                     {
-                        if(!(conn.Conn.Available > 0) && conn.Conn.Poll(1000, SelectMode.SelectRead))
+                        if(!(conn.Conn.Available > 0) && conn.Conn.Poll(3000, SelectMode.SelectRead))
                         {
                             connections.Remove(conn);
                             Console.WriteLine("Server: A connection has interupted");
@@ -77,5 +77,7 @@ namespace Server
                 }
             }
         }
+        
+        public List<Connection> Connections { get { return connections; } }
     }
 }
